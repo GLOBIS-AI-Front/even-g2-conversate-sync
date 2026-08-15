@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "conversate-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "even-conversate",
+      "database_id": "9c92f14f-8110-4ba1-92fb-88030d7d2f21"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION", "class_name": "Session" }]
+  },
+
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
+
+  "vars": {
+    "SONIOX_MODEL": "stt-rt-v5",
+    "SONIOX_WS_URL": "wss://stt-rt.soniox.com/transcribe-websocket"
+  },
+
+  "observability": { "enabled": true }
+}

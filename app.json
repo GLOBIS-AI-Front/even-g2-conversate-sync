@@ -1,0 +1,24 @@
+{
+  "package_id": "com.miyoshi.evenconversate",
+  "edition": "202601",
+  "name": "Conversate Sync",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.12",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "g2-microphone",
+      "desc": "会話を文字起こしするためにグラスのマイクを使います。"
+    },
+    {
+      "name": "network",
+      "desc": "文字起こしのために音声を自分のサーバへ送ります。",
+      "whitelist": [
+        "https://conversate-relay.miyoshi-bd1.workers.dev",
+        "wss://conversate-relay.miyoshi-bd1.workers.dev"
+      ]
+    }
+  ],
+  "supported_languages": ["ja", "en"]
+}

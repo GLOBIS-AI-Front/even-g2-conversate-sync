@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+*.local
+src/config.ts
+relay/node_modules
+relay/.wrangler
+public/dev/sample.pcm
