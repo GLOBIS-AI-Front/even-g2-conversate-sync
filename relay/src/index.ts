@@ -268,7 +268,7 @@ export class Session implements DurableObject {
     // 表示は暫定込みで即出しし、保存する transcript には確定だけを積む。
     // 暫定トークンは毎回まるごと送り直されるため、追記ではなく置き換える。
     let interim = ''
-    let gotFinal = false
+    let appendedFinal = ''
 
     for (const tok of res.tokens ?? []) {
       const text: string = tok.text ?? ''
@@ -288,14 +288,18 @@ export class Session implements DurableObject {
         this.lines.push({ speaker, text })
       }
       this.tailBuffer = (this.tailBuffer + text).slice(-TAIL_CHARS)
-      gotFinal = true
+      appendedFinal += text
     }
 
-    if (interim !== this.interim || gotFinal) {
+    if (interim !== this.interim || appendedFinal) {
       this.interim = interim
       this.send({
         type: 'text',
+        // 新しいプラグインはこれを見る（暫定込みの直近テキストを丸ごと置き換える）
         tail: (this.tailBuffer + this.interim).slice(-TAIL_CHARS),
+        // 旧プラグイン（v0.1.0）は text を追記する。消すと undefined を連結してしまうので、
+        // 確定ぶんの差分を必ず入れておく。空文字なら追記しても無害。
+        text: appendedFinal,
         chars: this.charCount(),
       })
     }
