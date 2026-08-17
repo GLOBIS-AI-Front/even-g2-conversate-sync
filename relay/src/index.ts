@@ -69,6 +69,25 @@ export default {
       return stub.fetch(request)
     }
 
+    // --- 実機 WebView の能力探査（設計判断用・一時的） ---
+    if (url.pathname === '/probe') {
+      if (url.searchParams.get('token') !== env.PLUGIN_TOKEN) {
+        return json({ error: 'unauthorized' }, 401)
+      }
+      if (request.method === 'POST') {
+        const body = await request.text()
+        console.log('probe:', body)
+        await env.DB.prepare('INSERT INTO probes (created_at, payload) VALUES (?, ?)')
+          .bind(Date.now(), body)
+          .run()
+        return json({ ok: true })
+      }
+      const { results } = await env.DB.prepare(
+        'SELECT id, created_at, payload FROM probes ORDER BY id DESC LIMIT 5',
+      ).all()
+      return json({ probes: results ?? [] })
+    }
+
     // --- Mac mini poller 用 ---
     if (url.pathname === '/pull' || url.pathname === '/ack') {
       if (request.headers.get('Authorization') !== `Bearer ${env.PULL_TOKEN}`) {

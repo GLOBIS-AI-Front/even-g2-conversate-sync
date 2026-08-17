@@ -51,6 +51,8 @@ let tailText = ''
 let statusNote = ''
 let reconnects = 0
 let lastSavedNote = ''
+/** 探査結果の 1 行サマリ（一時的） */
+let probeNote = ''
 
 // ---------------------------------------------------------------- 表示
 
@@ -79,6 +81,7 @@ function screen(): string {
             'もう一度タップで停止し保存',
             'ダブルタップで終了',
             lastSavedNote,
+            probeNote,
           ]
             .filter(Boolean)
             .join('\n')
@@ -396,6 +399,15 @@ async function main() {
   window.addEventListener('beforeunload', () => void cleanup())
 
   await render()
+
+  // iPhone 側の音声認識が使えるかを 1 度だけ調べる（設計判断のための一時的な処理）。
+  // 結果が出るまで通常の操作は普通に使える。
+  void (async () => {
+    const { runProbe, probeSummary } = await import('./probe')
+    const result = await runProbe()
+    probeNote = probeSummary(result)
+    void render()
+  })()
 }
 
 void main()
