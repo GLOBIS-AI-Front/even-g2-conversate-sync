@@ -97,6 +97,8 @@ tail -f ~/Library/Logs/conversate-sync.log
 
 ## ハマりどころ
 
+> 詳しい開発フローと実機配布の手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) にある。
+
 - **Workers の `fetch` は `wss://` を受け付けない**。`https://` に直して `Upgrade: websocket` を付ける
 - **DO の WebSocket は既定でバイナリを `Blob` で渡す**。そのまま転送すると Soniox はテキスト扱いして弾く。
   本実装は確実性を優先して **base64 テキスト**で Soniox に送っている（経路は Worker→Soniox だけなので通信量は問題にならない）
