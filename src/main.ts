@@ -5,7 +5,8 @@
  *                                                          |
  *                                        Mac mini poller <--+  --> Obsidian
  *
- * 操作: シングルタップで 開始/停止、ダブルタップで終了ダイアログ。
+ * 起動した時点で記録が始まり、閉じれば保存される。開始も保存も操作を要求しない。
+ * 操作: シングルタップで 停止/再開、ダブルタップで終了ダイアログ。
  */
 import {
   waitForEvenAppBridge,
@@ -51,8 +52,6 @@ let tailText = ''
 let statusNote = ''
 let reconnects = 0
 let lastSavedNote = ''
-/** 探査結果の 1 行サマリ（一時的） */
-let probeNote = ''
 
 // ---------------------------------------------------------------- 表示
 
@@ -77,11 +76,10 @@ function screen(): string {
       ? tailText || '（発話を待っています）'
       : state === 'idle'
         ? [
-            'タップで会話の記録を開始',
-            'もう一度タップで停止し保存',
+            '記録を止めました',
+            'タップで記録を再開',
             'ダブルタップで終了',
             lastSavedNote,
-            probeNote,
           ]
             .filter(Boolean)
             .join('\n')
@@ -321,7 +319,22 @@ async function stopAudio() {
   }
 }
 
+/**
+ * アプリが閉じられるときの後始末。
+ *
+ * 保存は relay 側で完結する。stop を送れれば確定処理まで綺麗に走るし、
+ * 送る前に落とされても WS が切れた時点で relay が保存する。
+ * つまり「そのままアプリを落として良い」。
+ */
 async function cleanup() {
+  try {
+    if (ws?.readyState === WebSocket.OPEN) {
+      flushAudio() // 手元に残った音声を送り切る
+      ws.send(JSON.stringify({ type: 'stop' }))
+    }
+  } catch {
+    /* 既に閉じている */
+  }
   await stopAudio()
   try {
     ws?.close()
@@ -400,14 +413,10 @@ async function main() {
 
   await render()
 
-  // iPhone 側の音声認識が使えるかを 1 度だけ調べる（設計判断のための一時的な処理）。
-  // 結果が出るまで通常の操作は普通に使える。
-  void (async () => {
-    const { runProbe, probeSummary } = await import('./probe')
-    const result = await runProbe()
-    probeNote = probeSummary(result)
-    void render()
-  })()
+  // 起動＝記録開始。タップを待たない。
+  // 「開いた瞬間から録れていて、閉じれば勝手に残る」のが本来やりたい体験なので、
+  // 明示的な開始も保存も要求しない。
+  await start()
 }
 
 void main()

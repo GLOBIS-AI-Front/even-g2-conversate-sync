@@ -25,6 +25,9 @@ export interface Env {
 /** レンズに出す直近テキストの長さ。G2 は 576x288 で 400〜500 字が全画面。 */
 const TAIL_CHARS = 160
 
+/** この時間だけ音声が来なければ、相手が消えたとみなして確定保存する。 */
+const IDLE_TIMEOUT_MS = 3 * 60 * 1000
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -140,6 +143,7 @@ export class Session implements DurableObject {
   private saved = false
   private langHints: string[] = ['ja', 'en']
   private keepalive: number | null = null
+  private lastAlarmSetAt = 0
 
   constructor(
     private state: DurableObjectState,
@@ -208,7 +212,28 @@ export class Session implements DurableObject {
    * Workers 間のバイナリフレームは中継の途中で解釈が揺れるため、base64 テキストで送る
    * （経路は Worker→Soniox だけなので、33% の増分はスマホの通信量に影響しない）。
    */
+  /**
+   * 音声が途絶えたら保存する保険。
+   *
+   * アプリが突然落ちると WS の close が飛んでこないことがあり、その場合
+   * 書き起こしが宙に浮く。マイクは無音でもフレームを送り続けるので、
+   * 「フレームが来なくなった＝相手がいない」と見なせる。
+   */
+  private touchAlarm() {
+    const now = Date.now()
+    // 毎フレーム書くと storage への書き込みが多すぎるので間引く
+    if (now - this.lastAlarmSetAt < 30_000) return
+    this.lastAlarmSetAt = now
+    void this.state.storage.setAlarm(now + IDLE_TIMEOUT_MS)
+  }
+
+  async alarm() {
+    if (this.saved) return
+    await this.finish('idle_timeout')
+  }
+
   private forwardAudio(chunk: ArrayBuffer) {
+    this.touchAlarm()
     const b64 = toBase64(chunk)
     if (this.soniox && this.sonioxReady) {
       this.soniox.send(b64)

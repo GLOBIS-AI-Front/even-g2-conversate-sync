@@ -182,10 +182,10 @@ npm run build && rm -rf dist/dev && npx evenhub pack app.json dist
 ポータルで `Upload a build` → Change log を書いて `Add build` → **新しいビルドを Beta に昇格**。
 昇格すると前のバージョンは自動的に Private に降格する。スマホ側は再インストールが要る。
 
-**昇格するとテストグループのメンバーが消える。** v0.1.2 を昇格させたら、Active だった
-テスターが 0 人になっていた（昇格ダイアログの `Beta group` が `0 people` になっていたら
-これが起きている）。**昇格のたびにテスターを追加し直し、招待メールから入れ直す**必要がある。
-公式ドキュメントに記載は無い。
+**Testing group の一覧は非同期で読み込まれる。** 昇格直後に開くと「No users in the testing
+group yet」や `Beta group: 0 people` と表示されることがあるが、**メンバーが消えたわけではない**。
+数秒待つか再読み込みすれば `Active` が出る。これを消失と誤認して招待を送り直さないこと
+（テスターの登録は昇格をまたいで保持される）。
 
 ### 踏んだ地雷
 
