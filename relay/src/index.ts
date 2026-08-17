@@ -22,6 +22,9 @@ export interface Env {
   PULL_TOKEN: string
 }
 
+/** レンズに出す直近テキストの長さ。G2 は 576x288 で 400〜500 字が全画面。 */
+const TAIL_CHARS = 160
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -110,6 +113,10 @@ export class Session implements DurableObject {
 
   /** 確定した書き起こし。話者が変わるたびに行を分ける。 */
   private lines: { speaker: string; text: string }[] = []
+  /** レンズ表示用の直近テキスト。全文を毎回連結すると長い会話で無駄なので切り詰めて持つ。 */
+  private tailBuffer = ''
+  /** 未確定のトークン。確定したら tailBuffer 側に移る。 */
+  private interim = ''
   private startedAt = 0
   private saved = false
   private langHints: string[] = ['ja', 'en']
@@ -142,6 +149,8 @@ export class Session implements DurableObject {
     // （通信断からの再接続は「続きの別セグメント」になる。二重保存を防ぐ）
     this.lines = []
     this.pending = []
+    this.tailBuffer = ''
+    this.interim = ''
 
     serverSide.addEventListener('message', (event: MessageEvent) => {
       if (typeof event.data === 'string') {
@@ -254,12 +263,22 @@ export class Session implements DurableObject {
       return
     }
 
-    let appended = ''
+    // Soniox は暫定トークンを即座に、確定トークンを遅れて返す。
+    // 確定だけを待つとその遅延がそのままレンズの体感遅延になるので、
+    // 表示は暫定込みで即出しし、保存する transcript には確定だけを積む。
+    // 暫定トークンは毎回まるごと送り直されるため、追記ではなく置き換える。
+    let interim = ''
+    let gotFinal = false
+
     for (const tok of res.tokens ?? []) {
-      if (!tok.is_final) continue
       const text: string = tok.text ?? ''
       // <end> のような制御トークンは本文ではない
       if (!text || (text.startsWith('<') && text.endsWith('>'))) continue
+
+      if (!tok.is_final) {
+        interim += text
+        continue
+      }
 
       const speaker = String(tok.speaker ?? '1')
       const last = this.lines[this.lines.length - 1]
@@ -268,11 +287,18 @@ export class Session implements DurableObject {
       } else {
         this.lines.push({ speaker, text })
       }
-      appended += text
+      this.tailBuffer = (this.tailBuffer + text).slice(-TAIL_CHARS)
+      gotFinal = true
     }
 
-    // レンズに出す用の直近テキスト
-    if (appended) this.send({ type: 'text', text: appended, chars: this.charCount() })
+    if (interim !== this.interim || gotFinal) {
+      this.interim = interim
+      this.send({
+        type: 'text',
+        tail: (this.tailBuffer + this.interim).slice(-TAIL_CHARS),
+        chars: this.charCount(),
+      })
+    }
   }
 
   private charCount() {

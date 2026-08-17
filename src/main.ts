@@ -56,6 +56,7 @@ let lastSavedNote = ''
 
 let lastRendered = ''
 let renderBusy = false
+let renderPending = false
 
 function screen(): string {
   const head =
@@ -91,9 +92,16 @@ function clock(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** BLE 越しの更新は詰まりやすいので、直列化して同じ内容は送らない。 */
+/**
+ * BLE 越しの更新は詰まりやすいので、直列化して同じ内容は送らない。
+ * 送信中に来た更新は捨てずに覚えておき、終わり次第すぐ描き直す
+ * （捨てると次のタイマーまで最大 200ms 遅れて表示がガタつく）。
+ */
 async function render() {
-  if (renderBusy) return
+  if (renderBusy) {
+    renderPending = true
+    return
+  }
   const next = screen()
   if (next === lastRendered) return
   renderBusy = true
@@ -112,6 +120,10 @@ async function render() {
     console.warn('render failed', e)
   } finally {
     renderBusy = false
+    if (renderPending) {
+      renderPending = false
+      void render()
+    }
   }
   mirrorToDom(next)
 }
@@ -175,7 +187,9 @@ function openSocket(sessionId: string) {
       }
       if (msg.type === 'text') {
         charCount = msg.chars ?? charCount
-        tailText = (tailText + msg.text).slice(-160)
+        // relay が暫定込みの直近テキストを毎回まるごと送ってくるので置き換える
+        // （追記すると暫定が確定に変わるたび二重に出る）
+        tailText = msg.tail ?? tailText
         lastTextAt = Date.now()
       } else if (msg.type === 'saved') {
         lastSavedNote = `前回: ${msg.chars}字 保存済み`

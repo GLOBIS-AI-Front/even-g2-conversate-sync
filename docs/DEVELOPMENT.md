@@ -170,6 +170,18 @@ npx evenhub pack app.json dist     # → out.ehpk
 6. **Testing group タブ** → `Add user` → 自分のメールアドレスを追加
 7. 届いた招待メールを**スマホで開き**、`Open in Even Realities App` からインストール
 
+### 更新版の出し方
+
+2 回目以降も同じ流れだが、**バージョンを上げないとアップロードできない**。
+
+```bash
+# app.json の version を上げる
+npm run build && rm -rf dist/dev && npx evenhub pack app.json dist
+```
+
+ポータルで `Upload a build` → Change log を書いて `Add build` → **新しいビルドを Beta に昇格**。
+昇格すると前のバージョンは自動的に Private に降格する。スマホ側は再インストールが要る。
+
 ### 踏んだ地雷
 
 - **手順 4-5 を飛ばすと詰む。** Testing group にユーザーを追加しただけでは配布物が Private のままで、
@@ -190,6 +202,20 @@ npx evenhub pack app.json dist     # → out.ehpk
   「テキスト扱い」で弾かれる。本実装は確実性を優先して **base64 テキスト**で送っている
   （経路は Worker→Soniox だけなので 33% の増分はスマホの通信量に影響しない）
 - **既定の `Python-urllib` という User-Agent は 403 で弾かれる。** poller は UA を名乗る
+
+### 文字起こしの体感遅延（v0.1.1 で修正）
+
+**確定トークン（`is_final`）だけをレンズに送ると、字幕として実用にならない。**
+Soniox は暫定トークンをほぼ即座に返すが、確定は文脈と無音を待ってから出すので、
+その待ち時間がまるごと体感遅延になる。実機で「遅くて実用に耐えない」と判明した。
+
+修正は、**表示は暫定込みで即出しし、保存する transcript には確定だけを積む**（字幕表示の定石）。
+
+- 暫定トークンは毎回まるごと送り直されるので、**追記ではなく置き換える**
+- relay は差分ではなく「直近テキストの絶対値」を送る。差分だと暫定→確定の切り替わりで二重に出る
+- BLE 送信中に来た更新を捨てると次のタイマーまで遅れるので、`renderPending` で覚えて描き直す
+
+実測（合成音声）: **発話開始から 916ms で初回表示**、以降は音声に追随して流れる。
 
 ### Even Hub
 
@@ -226,5 +252,7 @@ ls -lt ~/ObsidianValut/wiki/sources/conversate-*.md | head           # 生成さ
 
 - **公式 Conversate とマイクを取り合うか。** SDK ドキュメントに併用可否の記載がない。
   排他なら「Conversate Sync を使う間は公式を起動しない」運用になる
-- 長時間（30 分以上）の会話での安定性。Soniox の接続維持は keepalive で対策済みだが実測はまだ
+- ~~長時間の会話で途切れないか~~ → **実機で途切れないことを確認済み**（keepalive が効いている）
+- **公式 Conversate が何の ASR を使っているかは非公開。** 製品ページ・サポートセンター・アプリストアの
+  いずれにもベンダー名の記載がない
 - `onLaunchSource` で `glassesMenu` 起動を判定し、グラスから起動したときだけ自動で録音を開始する案（保留中）
