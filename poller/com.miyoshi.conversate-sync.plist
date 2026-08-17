@@ -7,7 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <!-- Mac mini は Command Line Tools 未導入で /usr/bin/python3 が動かない -->
+        <string>/usr/local/bin/python3</string>
         <string>/Users/miyoshi/even-conversate/poller/conversate_sync.py</string>
     </array>
 

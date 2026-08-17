@@ -70,12 +70,29 @@ def keychain(service: str) -> str | None:
 USER_AGENT = "conversate-sync/1.0"
 
 
+def _public_ctx():
+    """
+    公開サーバ向けの検証つき SSL コンテキスト。
+
+    Mac mini の python.org 版 Python は CA バンドルを持たないため、既定のままだと
+    CERTIFICATE_VERIFY_FAILED になる。certifi があればそれを信頼元にする。
+    """
+    import ssl
+
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def relay_pull(token: str, limit: int = 5) -> list[dict]:
     req = urllib.request.Request(
         f"https://{RELAY_HOST}/pull?limit={limit}",
         headers={"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT},
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=20, context=_public_ctx()) as resp:
         return json.load(resp).get("conversations", [])
 
 
@@ -91,7 +108,7 @@ def relay_ack(token: str, ids: list[str]) -> None:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20):
+    with urllib.request.urlopen(req, timeout=20, context=_public_ctx()):
         pass
 
 
@@ -212,7 +229,7 @@ def summarize_with_api(prompt: str, api_key: str) -> str | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with urllib.request.urlopen(req, timeout=180, context=_public_ctx()) as resp:
             data = json.load(resp)
         return "".join(b.get("text", "") for b in data.get("content", [])).strip() or None
     except Exception as e:  # noqa: BLE001
