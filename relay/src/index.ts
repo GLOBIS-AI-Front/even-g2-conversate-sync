@@ -20,6 +20,7 @@ export interface Env {
   SONIOX_API_KEY: string
   PLUGIN_TOKEN: string
   PULL_TOKEN: string
+  LINE_CHANNEL_SECRET: string
 }
 
 /** レンズに出す直近テキストの長さ。G2 は 576x288 で 400〜500 字が全画面。 */
@@ -43,6 +44,25 @@ function toBase64(buf: ArrayBuffer): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + STEP))
   }
   return btoa(binary)
+}
+
+/** LINE の署名検証。本文の HMAC-SHA256(base64) が x-line-signature と一致するか。 */
+async function verifyLineSignature(body: string, signature: string, secret: string): Promise<boolean> {
+  if (!signature || !secret) return false
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))
+  const expected = btoa(String.fromCharCode(...new Uint8Array(mac)))
+  // 長さが違えば即座に false。同じ長さなら定数時間で比較する。
+  if (expected.length !== signature.length) return false
+  let diff = 0
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i)
+  return diff === 0
 }
 
 const json = (body: unknown, status = 200) =>
@@ -89,6 +109,61 @@ export default {
         'SELECT id, created_at, payload FROM probes ORDER BY id DESC LIMIT 5',
       ).all()
       return json({ probes: results ?? [] })
+    }
+
+
+    // --- LINE Webhook（宛先の userId を捕まえ、返信を受け取る） ---
+    if (url.pathname === '/line/webhook') {
+      if (request.method !== 'POST') return json({ ok: true })
+
+      // 署名検証。これが無いと誰でも偽のイベントを投げ込める。
+      const raw = await request.text()
+      const signature = request.headers.get('x-line-signature') ?? ''
+      if (!(await verifyLineSignature(raw, signature, env.LINE_CHANNEL_SECRET))) {
+        return new Response('bad signature', { status: 401 })
+      }
+
+      let body: any
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        return json({ ok: true })
+      }
+
+      const now = Date.now()
+      for (const ev of body.events ?? []) {
+        const userId: string | undefined = ev?.source?.userId
+        if (!userId) continue
+
+        await env.DB.prepare(
+          `INSERT INTO line_users (user_id, display_name, first_seen, last_seen)
+           VALUES (?, '', ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET last_seen = excluded.last_seen`,
+        )
+          .bind(userId, now, now)
+          .run()
+
+        if (ev.type === 'message' && ev.message?.type === 'text') {
+          await env.DB.prepare(
+            'INSERT INTO line_inbox (user_id, text, created_at) VALUES (?, ?, ?)',
+          )
+            .bind(userId, String(ev.message.text).slice(0, 2000), now)
+            .run()
+        }
+      }
+      // LINE は 200 以外を返すと再送してくるので、処理に失敗しても 200 を返す
+      return json({ ok: true })
+    }
+
+    // --- 捕まえた宛先の確認（poller が読む） ---
+    if (url.pathname === '/line/users') {
+      if (request.headers.get('Authorization') !== `Bearer ${env.PULL_TOKEN}`) {
+        return json({ error: 'unauthorized' }, 401)
+      }
+      const { results } = await env.DB.prepare(
+        'SELECT user_id, first_seen, last_seen FROM line_users ORDER BY first_seen ASC',
+      ).all()
+      return json({ users: results ?? [] })
     }
 
     // --- Mac mini poller 用 ---

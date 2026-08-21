@@ -24,8 +24,6 @@
         <key>PATH</key>
         <string>/Users/miyoshi/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <!-- Vault の実体があるホスト。Mac mini 上で動かすなら 127.0.0.1 -->
-        <key>OBSIDIAN_HOST</key>
-        <string>127.0.0.1</string>
     </dict>
 
     <key>StandardOutPath</key>

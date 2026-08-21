@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """conversate-sync
 
-conversate-relay に溜まった会話の書き起こしを引き取り、要約して Obsidian Vault に
+conversate-relay に溜まった会話の書き起こしを引き取り、要約して Vault に
 1 会話 = 1 ノートとして格納し、relay に ack する。LaunchAgent から 60 秒ごとに叩く。
 
 要約は 3 段構え。どれも使えなくても書き起こしは必ず保存する（取りこぼさないことが最優先）。
@@ -9,8 +9,10 @@ conversate-relay に溜まった会話の書き起こしを引き取り、要約
   2. Anthropic API — Keychain に cred.even-conversate.anthropic-api-key があれば。
   3. 素のノート — 書き起こしだけのノートを保存し、要約は後追いできるよう印を付ける。
 
-Vault への書き込みは Obsidian Local REST API 経由（実体は Mac mini にしか無い）。
-ack するのは Vault に書けたものだけ。書けなければ relay に残り、次回再試行される。
+Vault へはファイルシステムに直接書く。Obsidian アプリも REST API も使わない
+（コンテキストエンジニアリング側が sprint4 で Obsidian 依存を撤去し、蒸留・索引・検索・注入が
+すべて FS 直書き + ローカル SQLite で回るようになったため、ここだけ REST に残る理由が無い）。
+ack するのは書けたものだけ。書けなければ relay に残り、次回再試行される。
 
   --dry-run  Vault に書かず標準出力に出す（ack もしない）
   --once     1 件だけ処理する
@@ -29,8 +31,6 @@ import urllib.request
 from pathlib import Path
 
 RELAY_HOST = os.environ.get("RELAY_HOST", "conversate-relay.miyoshi-bd1.workers.dev")
-OBSIDIAN_HOST = os.environ.get("OBSIDIAN_HOST", "100.113.58.43")
-OBSIDIAN_PORT = os.environ.get("OBSIDIAN_PORT", "27124")
 VAULT_DIR = os.environ.get("VAULT_DIR", "wiki/sources")
 LOG_PATH = Path(
     os.environ.get("CONVERSATE_LOG", Path.home() / "Library/Logs/conversate-sync.log")
@@ -112,43 +112,30 @@ def relay_ack(token: str, ids: list[str]) -> None:
         pass
 
 
-# ---------------------------------------------------------------- Obsidian
+# ---------------------------------------------------------------- Vault（FS 直書き）
 
 
-def _obsidian_ctx():
-    import ssl
-
-    ctx = ssl.create_default_context()
-    # Local REST API は自己署名証明書。宛先は自分の tailnet 内のホストに限定される。
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+def vault_root() -> Path:
+    return Path(os.environ.get("VAULT_ROOT", Path.home() / "ObsidianValut"))
 
 
-def obsidian_up() -> bool:
+def vault_available() -> bool:
+    """Vault の実体があるか。Obsidian アプリの起動有無とは無関係。"""
+    return (vault_root() / "wiki").is_dir()
+
+
+def vault_write(rel_path: str, markdown: str) -> bool:
+    """wiki 配下に直接書く。索引は context-loop 側が拾う。"""
+    target = vault_root() / rel_path
     try:
-        urllib.request.urlopen(
-            f"https://{OBSIDIAN_HOST}:{OBSIDIAN_PORT}/", timeout=4, context=_obsidian_ctx()
-        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 途中で落ちても壊れたファイルを残さないよう、書いてから差し替える
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_text(markdown)
+        tmp.replace(target)
         return True
-    except urllib.error.HTTPError:
-        return True  # 認証エラーでもサーバは生きている
-    except Exception:
-        return False
-
-
-def obsidian_put(path: str, markdown: str, key: str) -> bool:
-    req = urllib.request.Request(
-        f"https://{OBSIDIAN_HOST}:{OBSIDIAN_PORT}/vault/{path}",
-        data=markdown.encode(),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "text/markdown"},
-        method="PUT",
-    )
-    try:
-        urllib.request.urlopen(req, timeout=20, context=_obsidian_ctx())
-        return True
-    except Exception as e:  # noqa: BLE001
-        log(f"Vault 書き込み失敗 {path}: {e}")
+    except OSError as e:
+        log(f"Vault 書き込み失敗 {rel_path}: {e}")
         return False
 
 
@@ -324,15 +311,9 @@ def run(args) -> int:
         return 0
     log(f"{len(conversations)} 件の会話を取得")
 
-    obsidian_key = None
-    if not args.dry_run:
-        if not obsidian_up():
-            log("Obsidian に到達できないので見送り（relay 側に残す）")
-            return 0
-        obsidian_key = keychain("cred.obsidian.obsidian-api-key")
-        if not obsidian_key:
-            log("Obsidian API キーが Keychain にありません")
-            return 1
+    if not args.dry_run and not vault_available():
+        log(f"Vault が見つからないので見送り（relay 側に残す）: {vault_root()}")
+        return 0
 
     acked: list[str] = []
     for conv in conversations:
@@ -346,7 +327,7 @@ def run(args) -> int:
             print(f"=== {path}  (要約: {how}) ===")
             print(note)
         else:
-            if not obsidian_put(path, note, obsidian_key):
+            if not vault_write(path, note):
                 continue  # 次の tick で再試行
             log(f"保存: {path} (要約: {how})")
             acked.append(conv["id"])
