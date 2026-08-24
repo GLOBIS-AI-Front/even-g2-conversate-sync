@@ -155,6 +155,32 @@ export default {
       return json({ ok: true })
     }
 
+    // --- LINE 受信箱（秘書が引き取る） ---
+    if (url.pathname === '/line/pull' || url.pathname === '/line/ack') {
+      if (request.headers.get('Authorization') !== `Bearer ${env.PULL_TOKEN}`) {
+        return json({ error: 'unauthorized' }, 401)
+      }
+
+      if (url.pathname === '/line/pull') {
+        const { results } = await env.DB.prepare(
+          `SELECT id, user_id, text, created_at FROM line_inbox
+            WHERE handled = 0 ORDER BY created_at ASC LIMIT 10`,
+        ).all()
+        return json({ messages: results ?? [] })
+      }
+
+      const body = (await request.json().catch(() => null)) as { ids?: number[] } | null
+      const ids = body?.ids ?? []
+      if (!Array.isArray(ids) || ids.length === 0) return json({ acked: 0 })
+      const placeholders = ids.map(() => '?').join(',')
+      await env.DB.prepare(
+        `UPDATE line_inbox SET handled = 1 WHERE id IN (${placeholders})`,
+      )
+        .bind(...ids)
+        .run()
+      return json({ acked: ids.length })
+    }
+
     // --- 捕まえた宛先の確認（poller が読む） ---
     if (url.pathname === '/line/users') {
       if (request.headers.get('Authorization') !== `Bearer ${env.PULL_TOKEN}`) {

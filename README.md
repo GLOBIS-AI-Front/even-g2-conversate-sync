@@ -23,6 +23,10 @@ G2(4マイク) ──PCM 16k──▶ プラグイン(iPhone WebView)
 Worker に貯めてから Mac mini が引き取る形にしてあるので、会話中に Mac が寝ていても
 取りこぼさない。Vault に書けたものだけ ack するので、書き込み失敗も次回再試行される。
 
+> **自分の環境で動かすには** → [docs/SETUP.md](docs/SETUP.md)
+> Cloudflare Worker の作り方から実機への配布まで、一から立ち上げる手順。
+> リポジトリ内の Worker 名・D1 の ID・通信先は作者の環境の値なので、`npm run configure` で自分の値に差し替える。
+
 ## 構成
 
 | パス | 中身 |
@@ -34,6 +38,10 @@ Worker に貯めてから Mac mini が引き取る形にしてあるので、会
 | `relay/src/index.ts` | Cloudflare Worker + Durable Object |
 | `poller/conversate_sync.py` | Vault 格納の poller |
 | `poller/com.miyoshi.conversate-sync.plist` | LaunchAgent 定義 |
+| `scripts/configure.mjs` | Worker 名 / D1 / 通信先を自分の環境の値に一括置換 |
+| `scripts/test-relay.mjs` | relay の疎通確認（実音声を流して保存まで見る） |
+| `docs/SETUP.md` | 一から立ち上げる手順 |
+| `docs/DEVELOPMENT.md` | 開発フローと踏んだ地雷の記録 |
 
 ## 操作（グラス側）
 
